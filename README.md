@@ -58,6 +58,7 @@ Alternative command with explicit `cd` (same result):
 - Default is `900` seconds (15 minutes).
 - Manual run button: `Run Collector Now` in the top bar triggers one immediate short collector cycle (web manual trigger).
 - Manual trigger settings in `.env`: `ALLOW_WEB_MANUAL_TRIGGER` and `MANUAL_WEB_RUNTIME`.
+- TLS setting in `.env`: `AISSTREAM_TLS_VERIFY_PEER=1` (set `0` only for troubleshooting broken host CA trust).
 
 ## Dashboard URL
 

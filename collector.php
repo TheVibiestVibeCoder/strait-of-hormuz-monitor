@@ -38,6 +38,7 @@ $state = [
     'last_error' => null,
     'api_key_configured' => AISSTREAM_API_KEY !== '' && AISSTREAM_API_KEY !== 'CHANGE_ME',
     'api_key_fingerprint' => key_fingerprint(AISSTREAM_API_KEY),
+    'tls_verify_peer' => AISSTREAM_TLS_VERIFY_PEER,
 ];
 write_collector_state($state);
 
@@ -164,7 +165,8 @@ output_line('Collector start. Runtime: ' . $runtime . 's');
 try {
     $client = new SimpleWebSocketClient(
         'wss://stream.aisstream.io/v0/stream',
-        COLLECTOR_TIMEOUT_SECONDS
+        COLLECTOR_TIMEOUT_SECONDS,
+        AISSTREAM_TLS_VERIFY_PEER
     );
 
     $state['websocket_connected'] = true;
@@ -506,7 +508,7 @@ final class SimpleWebSocketClient {
     private string $readBuffer = '';
     private bool $closed = false;
 
-    public function __construct(string $url, int $timeoutSeconds) {
+    public function __construct(string $url, int $timeoutSeconds, bool $verifyPeer = true) {
         $parts = parse_url($url);
         if (!is_array($parts)) {
             throw new SimpleWebSocketConnectionException('Invalid websocket URL.');
@@ -530,15 +532,15 @@ final class SimpleWebSocketClient {
         }
 
         $port = (int)($parts['port'] ?? ($scheme === 'wss' ? 443 : 80));
-        $remoteScheme = $scheme === 'wss' ? 'ssl' : 'tcp';
-        $remote = $remoteScheme . '://' . $host . ':' . $port;
+        $remote = 'tcp://' . $host . ':' . $port;
 
         $timeout = max(1, $timeoutSeconds);
         $contextOptions = [];
         if ($scheme === 'wss') {
             $contextOptions['ssl'] = [
-                'verify_peer' => true,
-                'verify_peer_name' => true,
+                'verify_peer' => $verifyPeer,
+                'verify_peer_name' => $verifyPeer,
+                'allow_self_signed' => !$verifyPeer,
                 'SNI_enabled' => true,
                 'peer_name' => $host,
             ];
@@ -564,6 +566,22 @@ final class SimpleWebSocketClient {
 
         stream_set_timeout($stream, $timeout);
         stream_set_blocking($stream, true);
+
+        if ($scheme === 'wss') {
+            $tlsMethod = $this->tls_crypto_method_mask();
+            $cryptoResult = @stream_socket_enable_crypto($stream, true, $tlsMethod);
+            if ($cryptoResult !== true && $cryptoResult !== 1) {
+                $meta = stream_get_meta_data($stream);
+                $last = error_get_last();
+                throw new SimpleWebSocketConnectionException(
+                    'TLS handshake failed for AISStream websocket' .
+                    ($verifyPeer ? '' : ' (verify disabled)') .
+                    '. timed_out=' . (!empty($meta['timed_out']) ? '1' : '0') .
+                    ', eof=' . (feof($stream) ? '1' : '0') .
+                    ', warning=' . (is_array($last) ? (string)($last['message'] ?? '') : '')
+                );
+            }
+        }
 
         $this->stream = $stream;
         $this->handshake($host, $port, $path);
@@ -681,7 +699,14 @@ final class SimpleWebSocketClient {
         while (strpos($data, "\r\n\r\n") === false) {
             $chunk = fread($this->stream, 1024);
             if ($chunk === false) {
-                throw new SimpleWebSocketConnectionException('Failed reading websocket handshake response.');
+                $meta = stream_get_meta_data($this->stream);
+                $last = error_get_last();
+                throw new SimpleWebSocketConnectionException(
+                    'Failed reading websocket handshake response. timed_out=' .
+                    (!empty($meta['timed_out']) ? '1' : '0') .
+                    ', eof=' . (feof($this->stream) ? '1' : '0') .
+                    ', warning=' . (is_array($last) ? (string)($last['message'] ?? '') : '')
+                );
             }
 
             if ($chunk === '') {
@@ -713,6 +738,27 @@ final class SimpleWebSocketClient {
         }
 
         return $headerPart;
+    }
+
+    private function tls_crypto_method_mask(): int {
+        $mask = 0;
+        if (defined('STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT')) {
+            $mask |= (int)STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT;
+        }
+        if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
+            $mask |= (int)STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
+        }
+        if ($mask === 0 && defined('STREAM_CRYPTO_METHOD_TLS_CLIENT')) {
+            $mask = (int)STREAM_CRYPTO_METHOD_TLS_CLIENT;
+        }
+        if ($mask === 0 && defined('STREAM_CRYPTO_METHOD_ANY_CLIENT')) {
+            $mask = (int)STREAM_CRYPTO_METHOD_ANY_CLIENT;
+        }
+        if ($mask === 0) {
+            $mask = 0;
+        }
+
+        return $mask;
     }
 
     private function writeFrame(int $opcode, string $payload): void {

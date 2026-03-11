@@ -379,6 +379,8 @@ th {
                     <div class="debug-item"><div class="k">Rows: sightings</div><div class="v" id="dRowsSightings">-</div></div>
                     <div class="debug-item"><div class="k">State age</div><div class="v" id="dStateAge">-</div></div>
                     <div class="debug-item"><div class="k">PHP SAPI</div><div class="v" id="dSapi">-</div></div>
+                    <div class="debug-item"><div class="k">TLS verify peer</div><div class="v" id="dTls">-</div></div>
+                    <div class="debug-item"><div class="k">TCP 443 probe</div><div class="v" id="dTcp">-</div></div>
                 </div>
                 <div id="debugHint">Hint: -</div>
                 <div class="debug-sections">
@@ -656,6 +658,7 @@ function renderDebug(data, httpStatus, latencyMs, fetchError) {
     const debugCollector = debug.collector || {};
     const debugDb = debug.database || {};
     const debugSystem = debug.system || {};
+    const debugNet = debug.network || {};
     const files = debug.files || {};
     const logTail = debug.log_tail || {};
 
@@ -677,6 +680,9 @@ function renderDebug(data, httpStatus, latencyMs, fetchError) {
     setText('dRowsSightings', debugDb.rows_tanker_sightings !== undefined ? String(debugDb.rows_tanker_sightings) : '-');
     setText('dStateAge', debugCollector.state_age_seconds !== null && debugCollector.state_age_seconds !== undefined ? (debugCollector.state_age_seconds + ' s') : '-');
     setText('dSapi', debugSystem.php_sapi || '-');
+    setText('dTls', boolText(debugCollector.tls_verify_peer));
+    const tcpProbe = debugNet.aisstream_tcp_443 || {};
+    setText('dTcp', tcpProbe.checked ? ((tcpProbe.ok ? 'ok' : 'failed') + (tcpProbe.latency_ms !== undefined ? ` (${tcpProbe.latency_ms} ms)` : '')) : '-');
 
     const hint = fetchError
         ? ('Fetch error: ' + fetchError)

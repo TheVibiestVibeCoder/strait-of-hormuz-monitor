@@ -242,6 +242,9 @@ function build_debug_payload(
     $stateUpdatedAt = (string)($collectorState['updated_at'] ?? '');
     $stateFinishedAt = (string)($collectorState['finished_at'] ?? '');
     $stateAgeSeconds = iso_to_age_seconds($stateUpdatedAt);
+    $networkProbe = $includeVerboseDebug
+        ? probe_tcp_connectivity('stream.aisstream.io', 443, 4.0)
+        : ['checked' => false];
 
     $dbLatestTotal = (int)$db->query("SELECT COUNT(*) FROM vessel_latest")->fetchColumn();
     $dbSightingsTotal = (int)$db->query("SELECT COUNT(*) FROM tanker_sightings")->fetchColumn();
@@ -280,6 +283,11 @@ function build_debug_payload(
         'Last collector error: ' . ((string)($diagnosis['collector_last_error'] ?? '-')),
         'API key configured: ' . (((bool)($diagnosis['api_key_configured'] ?? false)) ? 'true' : 'false'),
     ];
+    if ((bool)($networkProbe['checked'] ?? false)) {
+        $terminalLines[] = 'TCP probe stream.aisstream.io:443 => ' .
+            (((bool)($networkProbe['ok'] ?? false)) ? 'ok' : 'failed') .
+            ', detail=' . (string)($networkProbe['detail'] ?? '');
+    }
 
     $logTail = [
         'available' => false,
@@ -307,7 +315,8 @@ function build_debug_payload(
         $delaySeconds,
         $dbLatestTotal,
         $dbSightingsTotal,
-        $logTail
+        $logTail,
+        $networkProbe
     );
 
     return [
@@ -317,6 +326,7 @@ function build_debug_payload(
             'php_version' => PHP_VERSION,
             'php_sapi' => PHP_SAPI,
             'php_binary' => defined('PHP_BINARY') ? (string)PHP_BINARY : '',
+            'openssl_version' => defined('OPENSSL_VERSION_TEXT') ? (string)OPENSSL_VERSION_TEXT : '',
             'project_root' => $rootPath,
             'timezone' => (string)date_default_timezone_get(),
         ],
@@ -343,6 +353,7 @@ function build_debug_payload(
             'last_error' => (string)($collectorState['last_error'] ?? ''),
             'api_key_configured' => (bool)($collectorState['api_key_configured'] ?? ($diagnosis['api_key_configured'] ?? false)),
             'api_key_fingerprint' => (string)($collectorState['api_key_fingerprint'] ?? 'unknown'),
+            'tls_verify_peer' => (bool)($collectorState['tls_verify_peer'] ?? AISSTREAM_TLS_VERIFY_PEER),
         ],
         'database' => [
             'db_path' => DB_PATH,
@@ -355,6 +366,9 @@ function build_debug_payload(
             'active_outbound_window' => (int)($stats['active_outbound'] ?? 0),
             'active_inbound_window' => (int)($stats['active_inbound'] ?? 0),
             'active_anchored_window' => (int)($stats['active_anchored'] ?? 0),
+        ],
+        'network' => [
+            'aisstream_tcp_443' => $networkProbe,
         ],
         'files' => $fileChecks,
         'log_tail' => $logTail,
@@ -391,6 +405,37 @@ function probe_path(string $path): array {
         'writable' => $exists ? is_writable($path) : false,
         'size_bytes' => $size,
         'modified_at' => $modifiedAt,
+    ];
+}
+
+function probe_tcp_connectivity(string $host, int $port, float $timeoutSeconds): array {
+    $t0 = microtime(true);
+    $errno = 0;
+    $errstr = '';
+    $fp = @stream_socket_client(
+        'tcp://' . $host . ':' . $port,
+        $errno,
+        $errstr,
+        $timeoutSeconds,
+        STREAM_CLIENT_CONNECT
+    );
+    $latencyMs = (int)round((microtime(true) - $t0) * 1000);
+
+    if (!is_resource($fp)) {
+        return [
+            'checked' => true,
+            'ok' => false,
+            'latency_ms' => $latencyMs,
+            'detail' => trim((string)$errstr) . ' (' . (int)$errno . ')',
+        ];
+    }
+
+    fclose($fp);
+    return [
+        'checked' => true,
+        'ok' => true,
+        'latency_ms' => $latencyMs,
+        'detail' => 'tcp connect succeeded',
     ];
 }
 
@@ -493,10 +538,12 @@ function build_debug_recommendations(
     ?int $delaySeconds,
     int $dbLatestTotal,
     int $dbSightingsTotal,
-    array $logTail
+    array $logTail,
+    array $networkProbe
 ): array {
     $actions = [];
     $issue = (string)($diagnosis['issue_code'] ?? '');
+    $lastError = strtolower((string)($diagnosis['collector_last_error'] ?? ''));
 
     if (!(bool)($diagnosis['api_key_configured'] ?? false)) {
         $actions[] = 'Set AISSTREAM_API_KEY in .env (exact key, no quotes/spaces).';
@@ -508,17 +555,31 @@ function build_debug_recommendations(
         $actions[] = 'For immediate validation, press "Run Collector Now" in the dashboard once and re-check debug metrics.';
     }
 
-    $tailLines = array_map('strtolower', (array)($logTail['lines'] ?? []));
-    foreach ($tailLines as $line) {
-        if (str_contains($line, 'must run') && str_contains($line, 'not via http')) {
-            $actions[] = 'Current trigger is being treated as web request. Use cron command: /usr/local/bin/lsphp /home/markussc/hormuz.markusschwinghammer.com/collector.php --runtime=50';
-            $actions[] = 'If using lsphp cron and this persists, keep latest collector.php (it now accepts shell-invoked lsphp/cg-fcgi).';
-            break;
+    $stateAvailable = (bool)($collectorState['available'] ?? false);
+    if (!$stateAvailable || $issue === 'collector_not_run') {
+        $tailLines = array_map('strtolower', (array)($logTail['lines'] ?? []));
+        foreach ($tailLines as $line) {
+            if (str_contains($line, 'must run') && str_contains($line, 'not via http')) {
+                $actions[] = 'Current trigger is being treated as web request. Use cron command: /usr/local/bin/lsphp /home/markussc/hormuz.markusschwinghammer.com/collector.php --runtime=50';
+                $actions[] = 'If using lsphp cron and this persists, keep latest collector.php (it now accepts shell-invoked lsphp/cg-fcgi).';
+                break;
+            }
         }
     }
 
     if (in_array($issue, ['collector_error', 'key_auth_problem', 'collector_stale'], true)) {
         $actions[] = 'Open logs/collector.log in File Manager and inspect latest lines for websocket/auth errors.';
+    }
+
+    if (str_contains($lastError, 'failed reading websocket handshake response')
+        || str_contains($lastError, 'tls handshake failed')) {
+        $actions[] = 'WebSocket/TLS handshake failed before auth. Host may block outbound WSS or have broken CA trust.';
+        $actions[] = 'Test fallback: set AISSTREAM_TLS_VERIFY_PEER=0 in .env, then click "Run Collector Now" again.';
+        $actions[] = 'If it still fails, ask hosting support to allow outbound TLS websocket traffic to stream.aisstream.io:443.';
+    }
+
+    if ((bool)($networkProbe['checked'] ?? false) && !(bool)($networkProbe['ok'] ?? true)) {
+        $actions[] = 'TCP probe to stream.aisstream.io:443 failed: ' . (string)($networkProbe['detail'] ?? 'unknown error');
     }
 
     if ((bool)($collectorState['available'] ?? false)) {
