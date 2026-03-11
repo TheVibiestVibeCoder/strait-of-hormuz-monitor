@@ -1,46 +1,46 @@
 <?php
-// ============================================================
-//  HORMUZ MONITOR — CONFIG
-//  Füll diese Werte aus bevor du die Scripts startest
-// ============================================================
+// Core credentials.
+define('AISSTREAM_API_KEY', getenv('AISSTREAM_API_KEY') ?: 'CHANGE_ME');
+define('ALERT_EMAIL', getenv('ALERT_EMAIL') ?: 'alerts@example.com');
+define('FROM_EMAIL', getenv('FROM_EMAIL') ?: 'hormuz-monitor@example.com');
 
-define('AISSTREAM_API_KEY', 'DEIN_API_KEY_HIER');   // https://aisstream.io → kostenloser Account
-define('ALERT_EMAIL',       'deine@email.com');      // Wohin die Alerts gehen
-define('FROM_EMAIL',        'hormuz@deinserver.com'); // Absender-Email
-
-// Datenbank (SQLite, wird automatisch erstellt)
+// SQLite database path.
 define('DB_PATH', __DIR__ . '/hormuz.db');
 
-// Hormuz Bounding Box
-// Southwest corner → Northeast corner
-define('BBOX_SW_LAT',  25.5);
-define('BBOX_SW_LON',  55.0);
-define('BBOX_NE_LAT',  27.0);
-define('BBOX_NE_LON',  58.0);
+// Strait of Hormuz monitoring box.
+define('BBOX_SW_LAT', 25.5);
+define('BBOX_SW_LON', 55.0);
+define('BBOX_NE_LAT', 27.0);
+define('BBOX_NE_LON', 58.0);
 
-// Alert-Schwellenwerte
-define('BASELINE_TANKERS_PER_DAY', 16);   // Normaler Durchschnitt Hormuz
-define('ALERT_L1_MULTIPLIER',      1.4);  // +40% = Level 1 Alert
-define('ALERT_L2_MULTIPLIER',      0.8);  // 80% der Baseline wieder = Level 2
+// Collector runtime and performance tuning.
+define('COLLECTOR_RUNTIME', (int)(getenv('COLLECTOR_RUNTIME') ?: 50));
+define('COLLECTOR_TIMEOUT_SECONDS', 25);
+define('COLLECTOR_WEB_TOKEN', getenv('COLLECTOR_WEB_TOKEN') ?: 'CHANGE_ME');
+define('MIN_SECONDS_BETWEEN_SIGHTINGS', 120);
+define('ACTIVE_VESSEL_WINDOW_MINUTES', 90);
+define('DATA_RETENTION_DAYS', 14);
+define('DASHBOARD_REFRESH_SECONDS', 15);
 
-// Wie lange der Collector läuft (Sekunden) — Cronjob alle 15min
-define('COLLECTOR_RUNTIME', 240); // 4 Minuten sammeln, 11 Minuten Pause
+// Signal thresholds.
+define('BASELINE_TANKERS_PER_DAY', 16);
+define('ALERT_L1_MULTIPLIER', 1.4);
+define('ALERT_L2_MULTIPLIER', 0.8);
 
-// News RSS Feeds
+// Optional news monitoring config (kept for compatibility).
 define('RSS_FEEDS', [
-    'Reuters World'  => 'https://feeds.reuters.com/reuters/worldNews',
-    'Reuters Mideast'=> 'https://feeds.reuters.com/reuters/middleEastNews',
-    'Al Jazeera'     => 'https://www.aljazeera.com/xml/rss/all.xml',
-    'IRNA English'   => 'https://en.irna.ir/rss',
-    'AP Top News'    => 'https://feeds.apnews.com/rss/apf-topnews',
+    'Reuters World' => 'https://feeds.reuters.com/reuters/worldNews',
+    'Reuters Middle East' => 'https://feeds.reuters.com/reuters/middleEastNews',
+    'Al Jazeera' => 'https://www.aljazeera.com/xml/rss/all.xml',
+    'IRNA English' => 'https://en.irna.ir/rss',
+    'AP Top News' => 'https://feeds.apnews.com/rss/apf-topnews',
 ]);
 
-// Keywords die einen News-Alert triggern
 define('NEWS_KEYWORDS_HIGH', [
     'hormuz', 'strait of hormuz', 'ceasefire', 'cease fire',
     'iran deal', 'peace talks', 'negotiations iran', 'oman mediator',
     'iran surrender', 'hormuz open', 'tanker passage',
-    'trump iran deal', 'iran nuclear deal',
+    'iran nuclear deal',
 ]);
 
 define('NEWS_KEYWORDS_MEDIUM', [
