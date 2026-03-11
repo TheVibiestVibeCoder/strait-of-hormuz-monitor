@@ -7,6 +7,7 @@ require_once __DIR__ . '/config.php';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hormuz Oil Flow Radar</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
 :root {
     --bg: #020202;
@@ -33,7 +34,7 @@ html, body {
 }
 .header {
     border: 1px solid var(--line);
-    background: rgba(9, 9, 9, 0.9);
+    background: rgba(9, 9, 9, 0.92);
     padding: 12px 14px;
     display: flex;
     justify-content: space-between;
@@ -48,6 +49,22 @@ html, body {
 .sub {
     color: var(--muted);
     font-size: 12px;
+}
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.btn {
+    border: 1px solid var(--line);
+    background: #0f0f0f;
+    color: var(--text);
+    font-size: 12px;
+    padding: 7px 10px;
+    cursor: pointer;
+}
+.btn:hover {
+    border-color: #4a4a4a;
 }
 .status-dot {
     width: 8px;
@@ -65,7 +82,7 @@ html, body {
 }
 .card {
     border: 1px solid var(--line);
-    background: rgba(9, 9, 9, 0.9);
+    background: rgba(9, 9, 9, 0.92);
     padding: 10px;
 }
 .card .k {
@@ -97,6 +114,8 @@ html, body {
     border-bottom: 1px solid var(--line);
     font-size: 12px;
     color: var(--muted);
+    gap: 8px;
+    flex-wrap: wrap;
 }
 .legend {
     display: flex;
@@ -117,16 +136,15 @@ html, body {
 .map-wrap {
     padding: 10px;
 }
-#radar {
+#hormuz-map {
     width: 100%;
-    height: auto;
+    height: 540px;
     border: 1px solid #171717;
     background: #010101;
-    display: block;
 }
 .feed {
     overflow: auto;
-    max-height: 560px;
+    max-height: 590px;
 }
 table {
     width: 100%;
@@ -159,22 +177,37 @@ th {
     color: var(--muted);
     font-size: 12px;
 }
+.leaflet-container { background: #060a0d !important; }
+.leaflet-tile { filter: brightness(0.62) saturate(0.28) hue-rotate(185deg) invert(0.9); }
+.leaflet-control-zoom a {
+    background: #0c0c0c !important;
+    color: #909090 !important;
+    border-color: #222 !important;
+}
+.leaflet-control-zoom a:hover {
+    color: #fff !important;
+    border-color: #444 !important;
+}
+.leaflet-popup-content-wrapper {
+    background: #0c0c0c !important;
+    color: #ddd !important;
+    border: 1px solid #2c2c2c !important;
+}
+.leaflet-popup-tip { background: #0c0c0c !important; }
+.leaflet-control-attribution {
+    background: rgba(0,0,0,0.6) !important;
+    color: #666 !important;
+    font-size: 10px !important;
+}
 @media (max-width: 1050px) {
-    .grid {
-        grid-template-columns: repeat(3, minmax(100px, 1fr));
-    }
-    .layout {
-        grid-template-columns: 1fr;
-    }
+    .grid { grid-template-columns: repeat(3, minmax(100px, 1fr)); }
+    .layout { grid-template-columns: 1fr; }
+    #hormuz-map { height: 450px; }
 }
 @media (max-width: 640px) {
-    .grid {
-        grid-template-columns: repeat(2, minmax(100px, 1fr));
-    }
-    th, td {
-        font-size: 11px;
-        padding: 7px 8px;
-    }
+    .grid { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
+    th, td { font-size: 11px; padding: 7px 8px; }
+    #hormuz-map { height: 380px; }
 }
 </style>
 </head>
@@ -183,11 +216,14 @@ th {
     <div class="header">
         <div>
             <div class="title">HORMUZ OIL FLOW RADAR</div>
-            <div class="sub">Near-real-time tanker positions and flow in the Strait of Hormuz</div>
+            <div class="sub">Tanker positions and flow in the Strait of Hormuz</div>
         </div>
-        <div class="sub">
-            <div><span class="status-dot" id="statusDot"></span><span id="statusText">loading...</span></div>
-            <div id="updatedAt">last update: -</div>
+        <div class="actions">
+            <button class="btn" id="manualRefresh">Refresh now</button>
+            <div class="sub">
+                <div><span class="status-dot" id="statusDot"></span><span id="statusText">loading...</span></div>
+                <div id="updatedAt">last update: -</div>
+            </div>
         </div>
     </div>
 
@@ -203,7 +239,7 @@ th {
     <div class="layout">
         <div class="panel">
             <div class="panel-head">
-                <div>Radar map (monitoring box: <?= BBOX_SW_LAT ?>,<?= BBOX_SW_LON ?> to <?= BBOX_NE_LAT ?>,<?= BBOX_NE_LON ?>)</div>
+                <div>Map with monitoring zone (<?= BBOX_SW_LAT ?>,<?= BBOX_SW_LON ?> to <?= BBOX_NE_LAT ?>,<?= BBOX_NE_LON ?>)</div>
                 <div class="legend">
                     <span><i style="background:var(--outbound)"></i>Outbound</span>
                     <span><i style="background:var(--inbound)"></i>Inbound</span>
@@ -211,9 +247,7 @@ th {
                     <span><i style="background:var(--unknown)"></i>Unknown</span>
                 </div>
             </div>
-            <div class="map-wrap">
-                <canvas id="radar" width="940" height="520"></canvas>
-            </div>
+            <div class="map-wrap"><div id="hormuz-map"></div></div>
         </div>
 
         <div class="panel">
@@ -237,10 +271,11 @@ th {
     </div>
 
     <div class="foot">
-        Refresh interval: <?= DASHBOARD_REFRESH_SECONDS ?>s | API: <code>/api.php</code> | UI is intentionally lightweight (no Leaflet, no chart libs)
+        Auto refresh: <?= DASHBOARD_REFRESH_SECONDS ?>s | Manual refresh button enabled | API: <code>/api.php</code>
     </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 const API_URL = 'api.php';
 const REFRESH_SECONDS = <?= DASHBOARD_REFRESH_SECONDS ?>;
@@ -252,113 +287,56 @@ const BBOX = {
     neLon: <?= BBOX_NE_LON ?>,
 };
 
-const VIEW = {
-    minLat: BBOX.swLat - 0.6,
-    maxLat: BBOX.neLat + 0.6,
-    minLon: BBOX.swLon - 1.0,
-    maxLon: BBOX.neLon + 1.0,
-};
-
-const DIR_COLOR = {
+const COLOR = {
     OUTBOUND: '#00d06f',
     INBOUND: '#3aa1ff',
     ANCHORED: '#ffc04d',
     UNKNOWN: '#6d6d6d',
 };
 
-const radar = document.getElementById('radar');
-const ctx = radar.getContext('2d');
+const map = L.map('hormuz-map', { zoomControl: true }).setView([26.35, 56.4], 8);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap',
+    maxZoom: 18,
+}).addTo(map);
 
-function toXY(lat, lon) {
-    const x = ((lon - VIEW.minLon) / (VIEW.maxLon - VIEW.minLon)) * radar.width;
-    const y = ((VIEW.maxLat - lat) / (VIEW.maxLat - VIEW.minLat)) * radar.height;
-    return [x, y];
+L.rectangle([[BBOX.swLat, BBOX.swLon], [BBOX.neLat, BBOX.neLon]], {
+    color: 'rgba(255,255,255,0.65)',
+    weight: 1,
+    dashArray: '6 4',
+    fillOpacity: 0,
+}).addTo(map).bindTooltip('Monitoring Zone');
+
+const markersLayer = L.layerGroup().addTo(map);
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
-function drawBase() {
-    ctx.clearRect(0, 0, radar.width, radar.height);
-    ctx.fillStyle = '#010101';
-    ctx.fillRect(0, 0, radar.width, radar.height);
+function markerIcon(direction, cog) {
+    const c = COLOR[direction] || COLOR.UNKNOWN;
+    const arrow = direction !== 'ANCHORED'
+        ? `<line x1="12" y1="12" x2="12" y2="3" stroke="${c}" stroke-width="2"/>\n           <polygon points="9,5 12,0 15,5" fill="${c}"/>`
+        : `<circle cx="12" cy="12" r="3" fill="${c}"/>`;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    const cols = 10;
-    const rows = 6;
-
-    for (let i = 1; i < cols; i += 1) {
-        const x = (radar.width / cols) * i;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, radar.height);
-        ctx.stroke();
-    }
-    for (let j = 1; j < rows; j += 1) {
-        const y = (radar.height / rows) * j;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(radar.width, y);
-        ctx.stroke();
-    }
-
-    // Monitoring box.
-    const [x1, y1] = toXY(BBOX.neLat, BBOX.swLon);
-    const [x2, y2] = toXY(BBOX.swLat, BBOX.neLon);
-    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-    ctx.setLineDash([6, 6]);
-    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-    ctx.setLineDash([]);
-
-    // Approximate traffic lane through Hormuz for quick orientation.
-    const lane = [
-        [26.95, 55.25],
-        [26.7, 55.65],
-        [26.45, 56.1],
-        [26.3, 56.65],
-        [26.2, 57.2],
-        [26.05, 57.75],
-    ];
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    lane.forEach((p, idx) => {
-        const [x, y] = toXY(p[0], p[1]);
-        if (idx === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-}
-
-function drawVessels(vessels) {
-    drawBase();
-
-    vessels.forEach((v) => {
-        if (!v.lat || !v.lon) return;
-        const [x, y] = toXY(v.lat, v.lon);
-        const color = DIR_COLOR[v.direction] || DIR_COLOR.UNKNOWN;
-
-        ctx.beginPath();
-        ctx.fillStyle = color;
-        ctx.arc(x, y, 3.8, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Heading vector.
-        if (v.direction !== 'ANCHORED') {
-            const headingRad = ((v.cog || 0) - 90) * (Math.PI / 180);
-            const vx = x + Math.cos(headingRad) * 9;
-            const vy = y + Math.sin(headingRad) * 9;
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(vx, vy);
-            ctx.stroke();
-        }
+    return L.divIcon({
+        className: '',
+        html: `<div style="transform:rotate(${Number(cog || 0)}deg);width:24px;height:24px">\n                 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">\n                   <circle cx="12" cy="12" r="10" fill="${c}" fill-opacity="0.18" stroke="${c}" stroke-width="1.5"/>\n                   ${arrow}\n                 </svg>\n               </div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
     });
 }
 
 function setText(id, value) {
     const el = document.getElementById(id);
-    if (el) el.textContent = String(value);
+    if (el) {
+        el.textContent = String(value);
+    }
 }
 
 function formatAgo(seenAt) {
@@ -385,15 +363,6 @@ function shortDir(direction) {
     return 'UNK';
 }
 
-function escapeHtml(value) {
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
 function renderFeed(vessels) {
     const body = document.getElementById('feedBody');
     if (!body) return;
@@ -406,15 +375,51 @@ function renderFeed(vessels) {
     const rows = vessels.slice(0, 40).map((v) => {
         const safeName = escapeHtml(v.name || 'UNKNOWN');
         const label = safeName.length > 14 ? safeName.slice(0, 14) + '...' : safeName;
-        return `<tr>
-            <td title="${safeName} (${escapeHtml(v.mmsi)})">${label}</td>
-            <td class="${dirClass(v.direction)}">${shortDir(v.direction)}</td>
-            <td>${Number(v.sog || 0).toFixed(1)}</td>
-            <td>${formatAgo(v.seen_at)}</td>
-        </tr>`;
+        return `<tr>\n            <td title="${safeName} (${escapeHtml(v.mmsi)})">${label}</td>\n            <td class="${dirClass(v.direction)}">${shortDir(v.direction)}</td>\n            <td>${Number(v.sog || 0).toFixed(1)}</td>\n            <td>${formatAgo(v.seen_at)}</td>\n        </tr>`;
     });
 
     body.innerHTML = rows.join('');
+}
+
+function renderMap(vessels) {
+    markersLayer.clearLayers();
+
+    if (!Array.isArray(vessels) || vessels.length === 0) {
+        return;
+    }
+
+    vessels.forEach((v) => {
+        if (!v.lat || !v.lon) return;
+
+        const direction = v.direction || 'UNKNOWN';
+        const marker = L.marker([v.lat, v.lon], {
+            icon: markerIcon(direction, v.cog),
+        });
+
+        const color = COLOR[direction] || COLOR.UNKNOWN;
+        const directionText = direction === 'OUTBOUND'
+            ? 'Outbound'
+            : direction === 'INBOUND'
+                ? 'Inbound'
+                : direction === 'ANCHORED'
+                    ? 'Anchored'
+                    : 'Unknown';
+
+        marker.bindPopup(`
+            <div style="min-width:200px">
+                <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">${escapeHtml(v.name || 'UNKNOWN')}</div>
+                <div style="font-size:11px;color:#666;margin-bottom:8px">MMSI ${escapeHtml(v.mmsi)}</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px">
+                    <div style="color:#666">Direction</div><div style="color:${color}">${directionText}</div>
+                    <div style="color:#666">COG</div><div>${Number(v.cog || 0).toFixed(0)} deg</div>
+                    <div style="color:#666">SOG</div><div>${Number(v.sog || 0).toFixed(1)} kn</div>
+                    <div style="color:#666">Seen</div><div>${escapeHtml(v.seen_at || '-')}</div>
+                </div>
+            </div>
+        `);
+
+        marker.addTo(markersLayer);
+    });
 }
 
 function renderStatus(health) {
@@ -455,7 +460,7 @@ async function refresh() {
         setText('s24', stats.unique_24h || 0);
         setText('s1h', stats.flow_1h || 0);
 
-        drawVessels(vessels);
+        renderMap(vessels);
         renderFeed(vessels);
         renderStatus(data.health || {});
     } catch (err) {
@@ -466,7 +471,7 @@ async function refresh() {
     }
 }
 
-drawBase();
+document.getElementById('manualRefresh').addEventListener('click', refresh);
 refresh();
 setInterval(refresh, REFRESH_SECONDS * 1000);
 </script>
