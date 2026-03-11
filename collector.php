@@ -3,17 +3,22 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 
 $isCronProcess = is_shell_invocation();
-if (!$isCronProcess) {
+$isManualWebTrigger = is_manual_web_trigger_request();
+if (!$isCronProcess && !$isManualWebTrigger) {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
-    echo "collector.php must run from shell cron, not via HTTP." . PHP_EOL;
+    echo "collector.php is blocked for regular web calls." . PHP_EOL;
+    echo "Use shell cron, or POST collector.php?manual=1 for explicit manual trigger." . PHP_EOL;
     echo "Detected sapi=" . PHP_SAPI . ", request_method=" . (string)($_SERVER['REQUEST_METHOD'] ?? '') . PHP_EOL;
     exit(1);
+}
+if ($isManualWebTrigger) {
+    header('Content-Type: text/plain; charset=utf-8');
 }
 
 $state = [
     'run_id' => uniqid('collector_', true),
-    'mode' => 'cron-shell',
+    'mode' => $isManualWebTrigger ? 'manual-web' : 'cron-shell',
     'status' => 'starting',
     'started_at' => gmdate('c'),
     'updated_at' => gmdate('c'),
@@ -41,9 +46,16 @@ if (AISSTREAM_API_KEY === '' || AISSTREAM_API_KEY === 'CHANGE_ME') {
 }
 
 $argvList = (isset($argv) && is_array($argv)) ? $argv : [];
-$runtime = cli_option_runtime($argvList, COLLECTOR_RUNTIME);
+$runtimeDefault = $isManualWebTrigger ? MANUAL_WEB_RUNTIME : COLLECTOR_RUNTIME;
+$runtime = $isManualWebTrigger
+    ? web_option_runtime($runtimeDefault)
+    : cli_option_runtime($argvList, $runtimeDefault);
 
-$runtime = max(15, min(55, $runtime));
+if ($isManualWebTrigger) {
+    $runtime = max(8, min(35, $runtime));
+} else {
+    $runtime = max(15, min(55, $runtime));
+}
 $state['runtime_seconds'] = $runtime;
 $state['status'] = 'bootstrapping';
 $state['updated_at'] = gmdate('c');
@@ -386,6 +398,15 @@ function cli_option_runtime(array $argv, int $default): int {
     return $default;
 }
 
+function web_option_runtime(int $default): int {
+    $raw = (string)($_POST['runtime'] ?? $_GET['runtime'] ?? '');
+    if ($raw === '' || !is_numeric($raw)) {
+        return $default;
+    }
+
+    return (int)$raw;
+}
+
 function clean_ship_name(string $shipName): string {
     $shipName = trim($shipName);
     return $shipName === '' ? 'UNKNOWN' : $shipName;
@@ -460,6 +481,20 @@ function is_shell_invocation(): bool {
     }
 
     return true;
+}
+
+function is_manual_web_trigger_request(): bool {
+    if (!ALLOW_WEB_MANUAL_TRIGGER) {
+        return false;
+    }
+
+    $manual = (string)($_POST['manual'] ?? $_GET['manual'] ?? '');
+    if ($manual !== '1' && strtolower($manual) !== 'true') {
+        return false;
+    }
+
+    $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? ''));
+    return $method === 'POST';
 }
 
 final class SimpleWebSocketConnectionException extends RuntimeException {}

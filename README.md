@@ -56,7 +56,8 @@ Alternative command with explicit `cd` (same result):
 
 - Auto refresh is controlled by `DASHBOARD_REFRESH_SECONDS`.
 - Default is `900` seconds (15 minutes).
-- Manual refresh button: `Refresh now` in the top bar.
+- Manual run button: `Run Collector Now` in the top bar triggers one immediate short collector cycle (web manual trigger).
+- Manual trigger settings in `.env`: `ALLOW_WEB_MANUAL_TRIGGER` and `MANUAL_WEB_RUNTIME`.
 
 ## Dashboard URL
 

@@ -505,6 +505,7 @@ function build_debug_recommendations(
     if ($issue === 'collector_not_run') {
         $actions[] = 'Verify cron command uses /usr/local/bin/lsphp and points to this exact folder.';
         $actions[] = 'Confirm collector.php is executed by shell cron command, not via HTTP/curl URL.';
+        $actions[] = 'For immediate validation, press "Run Collector Now" in the dashboard once and re-check debug metrics.';
     }
 
     $tailLines = array_map('strtolower', (array)($logTail['lines'] ?? []));

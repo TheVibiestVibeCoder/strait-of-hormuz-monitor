@@ -305,7 +305,7 @@ th {
             <div class="sub">Tanker positions and flow in the Strait of Hormuz</div>
         </div>
         <div class="actions">
-            <button class="btn" id="manualRefresh">Refresh now</button>
+            <button class="btn" id="manualRefresh">Run Collector Now</button>
             <div class="sub">
                 <div><span class="status-dot" id="statusDot"></span><span id="statusText">loading...</span></div>
                 <div id="updatedAt">last update: -</div>
@@ -405,14 +405,20 @@ th {
     </div>
 
     <div class="foot">
-        Auto refresh: <?= DASHBOARD_REFRESH_SECONDS ?>s | Manual refresh button enabled | API: <code>/api.php?debug=1</code>
+        Auto refresh: <?= DASHBOARD_REFRESH_SECONDS ?>s | Manual run button runtime: <?= MANUAL_WEB_RUNTIME ?>s | API: <code>/api.php?debug=1</code>
     </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 const API_URL = 'api.php';
+const COLLECTOR_URL = 'collector.php';
 const REFRESH_SECONDS = <?= DASHBOARD_REFRESH_SECONDS ?>;
+const MANUAL_RUNTIME_SECONDS = <?= MANUAL_WEB_RUNTIME ?>;
+const MANUAL_TRIGGER_ENABLED = <?= ALLOW_WEB_MANUAL_TRIGGER ? 'true' : 'false' ?>;
+
+let lastManualRun = null;
+let manualRunInProgress = false;
 
 const BBOX = {
     swLat: <?= BBOX_SW_LAT ?>,
@@ -604,6 +610,44 @@ function setList(id, items) {
     el.innerHTML = items.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
 }
 
+function setManualButtonState(busy) {
+    const btn = document.getElementById('manualRefresh');
+    if (!btn) return;
+
+    btn.disabled = busy;
+    btn.textContent = busy
+        ? `Collecting (${MANUAL_RUNTIME_SECONDS}s)...`
+        : 'Run Collector Now';
+}
+
+async function runManualCollectorOnce() {
+    if (!MANUAL_TRIGGER_ENABLED) {
+        throw new Error('Manual web trigger is disabled in config (.env: ALLOW_WEB_MANUAL_TRIGGER=0).');
+    }
+
+    const response = await fetch(
+        `${COLLECTOR_URL}?manual=1&runtime=${MANUAL_RUNTIME_SECONDS}&_=${Date.now()}`,
+        {
+            method: 'POST',
+            cache: 'no-store',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'manual=1'
+        }
+    );
+
+    const text = await response.text();
+    lastManualRun = {
+        at: new Date().toISOString(),
+        ok: response.ok,
+        status: response.status,
+        output: (text || '').trim(),
+    };
+
+    if (!response.ok) {
+        throw new Error(`Manual collector trigger failed (HTTP ${response.status})`);
+    }
+}
+
 function renderDebug(data, httpStatus, latencyMs, fetchError) {
     const diagnosis = data && data.diagnosis ? data.diagnosis : {};
     const health = data && data.health ? data.health : {};
@@ -645,6 +689,24 @@ function renderDebug(data, httpStatus, latencyMs, fetchError) {
             `[${new Date().toISOString()}] no terminal lines in payload`,
             'Check /api.php?debug=1 output.'
         ];
+
+    if (lastManualRun) {
+        terminalLines.push('--- Manual Trigger ---');
+        terminalLines.push(
+            `[${lastManualRun.at}] HTTP ${lastManualRun.status} ${lastManualRun.ok ? 'OK' : 'ERROR'}`
+        );
+        const lines = (lastManualRun.output || 'no output')
+            .split(/\r\n|\r|\n/)
+            .map((line) => line.trim())
+            .filter((line) => line !== '')
+            .slice(-10);
+        if (lines.length === 0) {
+            terminalLines.push('manual> no output');
+        } else {
+            lines.forEach((line) => terminalLines.push('manual> ' + line));
+        }
+    }
+
     setText('debugTerminal', terminalLines.join('\n'));
 
     setList('debugActions', Array.isArray(debug.recommended_actions) ? debug.recommended_actions : []);
@@ -713,7 +775,35 @@ async function refresh() {
     }
 }
 
-document.getElementById('manualRefresh').addEventListener('click', refresh);
+document.getElementById('manualRefresh').addEventListener('click', async () => {
+    if (manualRunInProgress) {
+        return;
+    }
+
+    manualRunInProgress = true;
+    setManualButtonState(true);
+
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    if (dot) dot.style.background = '#b45309';
+    if (text) text.textContent = 'manual collect running';
+
+    try {
+        await runManualCollectorOnce();
+    } catch (err) {
+        const msg = err && err.message ? err.message : String(err);
+        lastManualRun = {
+            at: new Date().toISOString(),
+            ok: false,
+            status: 0,
+            output: msg,
+        };
+    } finally {
+        await refresh();
+        setManualButtonState(false);
+        manualRunInProgress = false;
+    }
+});
 refresh();
 setInterval(refresh, REFRESH_SECONDS * 1000);
 </script>
