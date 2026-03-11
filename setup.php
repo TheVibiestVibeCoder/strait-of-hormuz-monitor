@@ -25,7 +25,7 @@ echo "   then set AISSTREAM_API_KEY\n\n";
 echo "2) Dependencies:\n";
 echo "   No composer step required for collector.php in this build.\n\n";
 
-echo "3) cPanel cron (CLI only, every 15 minutes):\n";
+echo "3) cPanel cron (shell command, every 15 minutes):\n";
 echo "   */15 * * * * {$phpBinary} {$basePath}/collector.php --runtime=50 >> {$basePath}/logs/collector.log 2>&1\n\n";
 
 echo "4) Dashboard URL:\n";

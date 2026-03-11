@@ -2,17 +2,18 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 
-$isCli = PHP_SAPI === 'cli';
-if (!$isCli) {
+$isCronProcess = is_shell_invocation();
+if (!$isCronProcess) {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
-    echo "collector.php must run via CLI cron, not via HTTP." . PHP_EOL;
+    echo "collector.php must run from shell cron, not via HTTP." . PHP_EOL;
+    echo "Detected sapi=" . PHP_SAPI . ", request_method=" . (string)($_SERVER['REQUEST_METHOD'] ?? '') . PHP_EOL;
     exit(1);
 }
 
 $state = [
     'run_id' => uniqid('collector_', true),
-    'mode' => $isCli ? 'cli' : 'web',
+    'mode' => 'cron-shell',
     'status' => 'starting',
     'started_at' => gmdate('c'),
     'updated_at' => gmdate('c'),
@@ -39,7 +40,8 @@ if (AISSTREAM_API_KEY === '' || AISSTREAM_API_KEY === 'CHANGE_ME') {
     finalize_and_exit($state, 'error', 'AISSTREAM_API_KEY is not configured in .env.', 1);
 }
 
-$runtime = cli_option_runtime($argv, COLLECTOR_RUNTIME);
+$argvList = (isset($argv) && is_array($argv)) ? $argv : [];
+$runtime = cli_option_runtime($argvList, COLLECTOR_RUNTIME);
 
 $runtime = max(15, min(55, $runtime));
 $state['runtime_seconds'] = $runtime;
@@ -438,6 +440,26 @@ function key_fingerprint(string $key): string {
     }
 
     return substr($key, 0, 2) . str_repeat('*', $len - 4) . substr($key, -2);
+}
+
+function is_shell_invocation(): bool {
+    if (PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg') {
+        return true;
+    }
+
+    if (isset($_SERVER['REQUEST_METHOD']) && (string)$_SERVER['REQUEST_METHOD'] !== '') {
+        return false;
+    }
+
+    if (isset($_SERVER['REMOTE_ADDR']) && (string)$_SERVER['REMOTE_ADDR'] !== '') {
+        return false;
+    }
+
+    if (isset($_SERVER['HTTP_HOST']) && (string)$_SERVER['HTTP_HOST'] !== '') {
+        return false;
+    }
+
+    return true;
 }
 
 final class SimpleWebSocketConnectionException extends RuntimeException {}

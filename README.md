@@ -38,8 +38,8 @@ Note: `collector.php` in this repository does not require Composer/vendor.
 
 ## Cron setup (exact lines)
 
-Use CLI cron to execute `collector.php`. Do not use `curl` for AISStream.
-`collector.php` is intentionally blocked for HTTP access and must run from CLI.
+Use shell cron command execution to run `collector.php`. Do not use `curl` URL calls for AISStream.
+`collector.php` is intentionally blocked for HTTP access and must run from shell/CLI context.
 
 ### cPanel cron every 15 minutes
 

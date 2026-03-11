@@ -261,15 +261,6 @@ function build_debug_payload(
         'collector_log_path' => probe_path($logPath),
     ];
 
-    $recommendations = build_debug_recommendations(
-        $diagnosis,
-        $collectorState,
-        $fileChecks,
-        $delaySeconds,
-        $dbLatestTotal,
-        $dbSightingsTotal
-    );
-
     $terminalLines = [
         '[' . gmdate('Y-m-d H:i:s') . ' UTC] Debug snapshot generated',
         'Issue: ' . ((string)($diagnosis['issue_code'] ?? 'unknown')),
@@ -308,6 +299,16 @@ function build_debug_payload(
             $terminalLines[] = 'Collector log is not available yet.';
         }
     }
+
+    $recommendations = build_debug_recommendations(
+        $diagnosis,
+        $collectorState,
+        $fileChecks,
+        $delaySeconds,
+        $dbLatestTotal,
+        $dbSightingsTotal,
+        $logTail
+    );
 
     return [
         'verbose' => $includeVerboseDebug,
@@ -491,7 +492,8 @@ function build_debug_recommendations(
     array $fileChecks,
     ?int $delaySeconds,
     int $dbLatestTotal,
-    int $dbSightingsTotal
+    int $dbSightingsTotal,
+    array $logTail
 ): array {
     $actions = [];
     $issue = (string)($diagnosis['issue_code'] ?? '');
@@ -502,7 +504,16 @@ function build_debug_recommendations(
 
     if ($issue === 'collector_not_run') {
         $actions[] = 'Verify cron command uses /usr/local/bin/lsphp and points to this exact folder.';
-        $actions[] = 'Confirm collector.php is executed by cron (CLI), not via HTTP/curl URL.';
+        $actions[] = 'Confirm collector.php is executed by shell cron command, not via HTTP/curl URL.';
+    }
+
+    $tailLines = array_map('strtolower', (array)($logTail['lines'] ?? []));
+    foreach ($tailLines as $line) {
+        if (str_contains($line, 'must run') && str_contains($line, 'not via http')) {
+            $actions[] = 'Current trigger is being treated as web request. Use cron command: /usr/local/bin/lsphp /home/markussc/hormuz.markusschwinghammer.com/collector.php --runtime=50';
+            $actions[] = 'If using lsphp cron and this persists, keep latest collector.php (it now accepts shell-invoked lsphp/cg-fcgi).';
+            break;
+        }
     }
 
     if (in_array($issue, ['collector_error', 'key_auth_problem', 'collector_stale'], true)) {
