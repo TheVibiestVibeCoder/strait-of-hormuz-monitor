@@ -28,14 +28,6 @@ $state = [
 ];
 write_collector_state($state);
 
-$autoload = __DIR__ . '/vendor/autoload.php';
-if (!file_exists($autoload)) {
-    finalize_and_exit($state, 'error', 'Missing vendor/autoload.php. Run: composer install --no-dev', 1);
-}
-require_once $autoload;
-
-use WebSocket\Client;
-
 if (AISSTREAM_API_KEY === '' || AISSTREAM_API_KEY === 'CHANGE_ME') {
     finalize_and_exit($state, 'error', 'AISSTREAM_API_KEY is not configured in .env.', 1);
 }
@@ -142,9 +134,10 @@ write_collector_state($state);
 output_line('Collector start. Runtime: ' . $runtime . 's');
 
 try {
-    $client = new Client('wss://stream.aisstream.io/v0/stream', [
-        'timeout' => COLLECTOR_TIMEOUT_SECONDS,
-    ]);
+    $client = new SimpleWebSocketClient(
+        'wss://stream.aisstream.io/v0/stream',
+        COLLECTOR_TIMEOUT_SECONDS
+    );
 
     $state['websocket_connected'] = true;
     $state['status'] = 'connected';
@@ -282,9 +275,9 @@ try {
                 $state['updated_at'] = gmdate('c');
                 write_collector_state($state);
             }
-        } catch (\WebSocket\TimeoutException $timeout) {
+        } catch (SimpleWebSocketTimeoutException $timeout) {
             continue;
-        } catch (\WebSocket\ConnectionException $connError) {
+        } catch (SimpleWebSocketConnectionException $connError) {
             $connectionError = $connError->getMessage();
             output_line('WebSocket connection error: ' . $connectionError);
             break;
@@ -397,4 +390,327 @@ function key_fingerprint(string $key): string {
     }
 
     return substr($key, 0, 2) . str_repeat('*', $len - 4) . substr($key, -2);
+}
+
+final class SimpleWebSocketConnectionException extends RuntimeException {}
+final class SimpleWebSocketTimeoutException extends RuntimeException {}
+
+final class SimpleWebSocketClient {
+    /** @var resource */
+    private $stream;
+    private string $readBuffer = '';
+    private bool $closed = false;
+
+    public function __construct(string $url, int $timeoutSeconds) {
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            throw new SimpleWebSocketConnectionException('Invalid websocket URL.');
+        }
+
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = (string)($parts['host'] ?? '');
+        $path = (string)($parts['path'] ?? '/');
+        $query = (string)($parts['query'] ?? '');
+
+        if ($scheme === '' || $host === '') {
+            throw new SimpleWebSocketConnectionException('Websocket URL must include scheme and host.');
+        }
+
+        if ($path === '') {
+            $path = '/';
+        }
+
+        if ($query !== '') {
+            $path .= '?' . $query;
+        }
+
+        $port = (int)($parts['port'] ?? ($scheme === 'wss' ? 443 : 80));
+        $remoteScheme = $scheme === 'wss' ? 'ssl' : 'tcp';
+        $remote = $remoteScheme . '://' . $host . ':' . $port;
+
+        $timeout = max(1, $timeoutSeconds);
+        $contextOptions = [];
+        if ($scheme === 'wss') {
+            $contextOptions['ssl'] = [
+                'verify_peer' => true,
+                'verify_peer_name' => true,
+                'SNI_enabled' => true,
+                'peer_name' => $host,
+            ];
+        }
+
+        $context = stream_context_create($contextOptions);
+        $errno = 0;
+        $errstr = '';
+        $stream = @stream_socket_client(
+            $remote,
+            $errno,
+            $errstr,
+            $timeout,
+            STREAM_CLIENT_CONNECT,
+            $context
+        );
+
+        if (!is_resource($stream)) {
+            throw new SimpleWebSocketConnectionException(
+                'Could not connect to AISStream websocket: ' . trim($errstr) . ' (' . $errno . ')'
+            );
+        }
+
+        stream_set_timeout($stream, $timeout);
+        stream_set_blocking($stream, true);
+
+        $this->stream = $stream;
+        $this->handshake($host, $port, $path);
+    }
+
+    public function send(string $payload): void {
+        $this->writeFrame(0x1, $payload);
+    }
+
+    public function receive(): string {
+        while (true) {
+            [$opcode, $fin, $payload] = $this->readFrame();
+
+            if ($opcode === 0x1) { // Text frame
+                if ($fin) {
+                    return $payload;
+                }
+
+                $message = $payload;
+                while (true) {
+                    [$nextOpcode, $nextFin, $nextPayload] = $this->readFrame();
+                    if ($nextOpcode === 0x0) { // Continuation frame
+                        $message .= $nextPayload;
+                        if ($nextFin) {
+                            return $message;
+                        }
+                        continue;
+                    }
+
+                    if ($nextOpcode === 0x9) { // Ping
+                        $this->writeFrame(0xA, $nextPayload);
+                        continue;
+                    }
+
+                    if ($nextOpcode === 0x8) {
+                        throw new SimpleWebSocketConnectionException('WebSocket closed by remote peer.');
+                    }
+                }
+            }
+
+            if ($opcode === 0x9) { // Ping
+                $this->writeFrame(0xA, $payload);
+                continue;
+            }
+
+            if ($opcode === 0x8) { // Close
+                throw new SimpleWebSocketConnectionException('WebSocket closed by remote peer.');
+            }
+        }
+    }
+
+    public function close(): void {
+        if ($this->closed) {
+            return;
+        }
+
+        $this->closed = true;
+        if (is_resource($this->stream)) {
+            @fclose($this->stream);
+        }
+    }
+
+    private function handshake(string $host, int $port, string $path): void {
+        $secKey = base64_encode(random_bytes(16));
+        $hostHeader = $host;
+        if ($port !== 80 && $port !== 443) {
+            $hostHeader .= ':' . $port;
+        }
+
+        $request =
+            "GET {$path} HTTP/1.1\r\n" .
+            "Host: {$hostHeader}\r\n" .
+            "Upgrade: websocket\r\n" .
+            "Connection: Upgrade\r\n" .
+            "Sec-WebSocket-Version: 13\r\n" .
+            "Sec-WebSocket-Key: {$secKey}\r\n" .
+            "User-Agent: hormuz-monitor/1.0\r\n\r\n";
+
+        $this->writeAll($request);
+        $headersRaw = $this->readHttpHeaders();
+        $lines = preg_split("/\r\n/", trim($headersRaw));
+        $statusLine = $lines[0] ?? '';
+        if (stripos($statusLine, '101') === false) {
+            throw new SimpleWebSocketConnectionException(
+                'WebSocket handshake failed. Response: ' . $statusLine
+            );
+        }
+
+        $headers = [];
+        foreach ($lines as $line) {
+            $pos = strpos($line, ':');
+            if ($pos === false) {
+                continue;
+            }
+
+            $k = strtolower(trim(substr($line, 0, $pos)));
+            $v = trim(substr($line, $pos + 1));
+            $headers[$k] = $v;
+        }
+
+        $accept = strtolower((string)($headers['sec-websocket-accept'] ?? ''));
+        $expected = strtolower(base64_encode(
+            sha1($secKey . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true)
+        ));
+
+        if ($accept === '' || !hash_equals($expected, $accept)) {
+            throw new SimpleWebSocketConnectionException('Invalid websocket handshake signature.');
+        }
+    }
+
+    private function readHttpHeaders(): string {
+        $data = '';
+        $maxLen = 65536;
+
+        while (strpos($data, "\r\n\r\n") === false) {
+            $chunk = fread($this->stream, 1024);
+            if ($chunk === false) {
+                throw new SimpleWebSocketConnectionException('Failed reading websocket handshake response.');
+            }
+
+            if ($chunk === '') {
+                $meta = stream_get_meta_data($this->stream);
+                if (!empty($meta['timed_out'])) {
+                    throw new SimpleWebSocketTimeoutException('Timed out waiting for websocket handshake.');
+                }
+                if (feof($this->stream)) {
+                    throw new SimpleWebSocketConnectionException('Socket closed during websocket handshake.');
+                }
+                continue;
+            }
+
+            $data .= $chunk;
+            if (strlen($data) > $maxLen) {
+                throw new SimpleWebSocketConnectionException('Websocket handshake headers exceeded maximum size.');
+            }
+        }
+
+        $sepPos = strpos($data, "\r\n\r\n");
+        if ($sepPos === false) {
+            throw new SimpleWebSocketConnectionException('Websocket handshake was incomplete.');
+        }
+
+        $headerPart = substr($data, 0, $sepPos + 4);
+        $remaining = substr($data, $sepPos + 4);
+        if ($remaining !== false && $remaining !== '') {
+            $this->readBuffer = $remaining;
+        }
+
+        return $headerPart;
+    }
+
+    private function writeFrame(int $opcode, string $payload): void {
+        $finBit = 0x80;
+        $firstByte = chr($finBit | ($opcode & 0x0F));
+        $payloadLen = strlen($payload);
+        $mask = random_bytes(4);
+        $maskBit = 0x80;
+
+        if ($payloadLen <= 125) {
+            $header = $firstByte . chr($maskBit | $payloadLen);
+        } elseif ($payloadLen <= 65535) {
+            $header = $firstByte . chr($maskBit | 126) . pack('n', $payloadLen);
+        } else {
+            $header = $firstByte . chr($maskBit | 127) . pack('NN', ($payloadLen >> 32) & 0xFFFFFFFF, $payloadLen & 0xFFFFFFFF);
+        }
+
+        $maskedPayload = $this->applyMask($payload, $mask);
+        $this->writeAll($header . $mask . $maskedPayload);
+    }
+
+    private function writeAll(string $data): void {
+        $total = strlen($data);
+        $written = 0;
+        while ($written < $total) {
+            $n = fwrite($this->stream, substr($data, $written));
+            if ($n === false || $n === 0) {
+                throw new SimpleWebSocketConnectionException('Failed writing to websocket stream.');
+            }
+            $written += $n;
+        }
+    }
+
+    /**
+     * @return array{0:int,1:bool,2:string}
+     */
+    private function readFrame(): array {
+        $header = $this->readExactly(2);
+        $b1 = ord($header[0]);
+        $b2 = ord($header[1]);
+
+        $fin = (($b1 & 0x80) === 0x80);
+        $opcode = $b1 & 0x0F;
+        $masked = (($b2 & 0x80) === 0x80);
+        $len = $b2 & 0x7F;
+
+        if ($len === 126) {
+            $ext = $this->readExactly(2);
+            $unpacked = unpack('nlen', $ext);
+            $len = (int)$unpacked['len'];
+        } elseif ($len === 127) {
+            $ext = $this->readExactly(8);
+            $parts = unpack('Nhigh/Nlow', $ext);
+            $len = ((int)$parts['high'] * 4294967296) + (int)$parts['low'];
+        }
+
+        $mask = $masked ? $this->readExactly(4) : '';
+        $payload = $len > 0 ? $this->readExactly($len) : '';
+        if ($masked) {
+            $payload = $this->applyMask($payload, $mask);
+        }
+
+        return [$opcode, $fin, $payload];
+    }
+
+    private function readExactly(int $length): string {
+        $data = '';
+
+        if ($this->readBuffer !== '') {
+            $take = min($length, strlen($this->readBuffer));
+            $data = substr($this->readBuffer, 0, $take);
+            $this->readBuffer = (string)substr($this->readBuffer, $take);
+        }
+
+        while (strlen($data) < $length) {
+            $chunk = fread($this->stream, $length - strlen($data));
+            if ($chunk === false) {
+                throw new SimpleWebSocketConnectionException('Failed reading websocket frame.');
+            }
+            if ($chunk === '') {
+                $meta = stream_get_meta_data($this->stream);
+                if (!empty($meta['timed_out'])) {
+                    throw new SimpleWebSocketTimeoutException('Timed out waiting for websocket frame.');
+                }
+                if (feof($this->stream)) {
+                    throw new SimpleWebSocketConnectionException('Websocket connection closed.');
+                }
+                continue;
+            }
+
+            $data .= $chunk;
+        }
+
+        return $data;
+    }
+
+    private function applyMask(string $data, string $mask): string {
+        $out = '';
+        $len = strlen($data);
+        for ($i = 0; $i < $len; $i++) {
+            $out .= chr(ord($data[$i]) ^ ord($mask[$i % 4]));
+        }
+
+        return $out;
+    }
 }

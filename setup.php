@@ -22,8 +22,8 @@ echo "1) Configure .env:\n";
 echo "   cp .env.example .env\n";
 echo "   then set AISSTREAM_API_KEY\n\n";
 
-echo "2) Install dependencies once:\n";
-echo "   composer install --no-dev\n\n";
+echo "2) Dependencies:\n";
+echo "   No composer step required for collector.php in this build.\n\n";
 
 echo "3) cPanel cron (CLI only, every 15 minutes):\n";
 echo "   */15 * * * * {$phpBinary} {$basePath}/collector.php --runtime=50 >> {$basePath}/logs/collector.log 2>&1\n\n";

@@ -32,13 +32,9 @@ cp .env.example .env
 3. Set at least this value in `.env`:
 - `AISSTREAM_API_KEY`
 
-4. Install dependency once:
+4. Ensure `logs/` is writable by PHP.
 
-```bash
-composer install --no-dev
-```
-
-5. Ensure `logs/` is writable by PHP.
+Note: `collector.php` in this repository does not require Composer/vendor.
 
 ## Cron setup (exact lines)
 
