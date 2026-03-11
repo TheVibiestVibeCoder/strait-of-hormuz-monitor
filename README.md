@@ -65,5 +65,6 @@ Alternative command with explicit `cd` (same result):
 ## Quick verification
 
 - Open `https://hormuz.markusschwinghammer.com/api.php`
+- Open `https://hormuz.markusschwinghammer.com/api.php?debug=1` for detailed diagnostics (collector state, DB counts, log tail, file checks).
 - Check `collector_online` and `collector_delay_seconds` in JSON.
 - Open dashboard and verify marker updates.

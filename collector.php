@@ -22,6 +22,13 @@ $state = [
     'seen_messages' => 0,
     'saved_latest' => 0,
     'saved_snapshots' => 0,
+    'position_messages' => 0,
+    'static_messages' => 0,
+    'skipped_invalid_payload' => 0,
+    'skipped_no_mmsi' => 0,
+    'skipped_no_coords' => 0,
+    'skipped_non_tanker' => 0,
+    'type_backfill_hits' => 0,
     'last_error' => null,
     'api_key_configured' => AISSTREAM_API_KEY !== '' && AISSTREAM_API_KEY !== 'CHANGE_ME',
     'api_key_fingerprint' => key_fingerprint(AISSTREAM_API_KEY),
@@ -127,6 +134,13 @@ $knownTypes = [];
 $lastLatestWriteTs = [];
 $lastSnapshotTs = [];
 $connectionError = null;
+$positionMessages = 0;
+$staticMessages = 0;
+$skippedInvalidPayload = 0;
+$skippedNoMmsi = 0;
+$skippedNoCoords = 0;
+$skippedNonTanker = 0;
+$typeBackfillHits = 0;
 
 $state['status'] = 'running';
 $state['updated_at'] = gmdate('c');
@@ -169,6 +183,7 @@ try {
 
             $msg = json_decode($raw, true);
             if (!is_array($msg) || !isset($msg['MessageType'])) {
+                $skippedInvalidPayload++;
                 continue;
             }
 
@@ -177,10 +192,12 @@ try {
             $meta = $msg['MetaData'] ?? [];
             $mmsi = isset($meta['MMSI']) ? (string)$meta['MMSI'] : '';
             if ($mmsi === '') {
+                $skippedNoMmsi++;
                 continue;
             }
 
             if ($type === 'PositionReport') {
+                $positionMessages++;
                 $position = $msg['Message']['PositionReport'] ?? [];
 
                 $lat = (float)($meta['latitude'] ?? $position['Latitude'] ?? 0.0);
@@ -192,17 +209,24 @@ try {
                 $shipType = (int)($meta['ShipType'] ?? 0);
 
                 if ($lat <= 0.0 || $lon <= 0.0) {
+                    $skippedNoCoords++;
                     continue;
                 }
 
                 if ($shipType <= 0) {
                     if (isset($knownTypes[$mmsi])) {
                         $shipType = $knownTypes[$mmsi];
+                        if ($shipType > 0) {
+                            $typeBackfillHits++;
+                        }
                     } else {
                         $latestTypeLookupStmt->execute([$mmsi]);
                         $lastKnown = $latestTypeLookupStmt->fetch();
                         if ($lastKnown) {
                             $shipType = (int)($lastKnown['ship_type'] ?? 0);
+                            if ($shipType > 0) {
+                                $typeBackfillHits++;
+                            }
                             if ($shipName === 'UNKNOWN') {
                                 $shipName = clean_ship_name($lastKnown['ship_name'] ?? '');
                             }
@@ -211,6 +235,7 @@ try {
                 }
 
                 if (!is_tanker($shipType)) {
+                    $skippedNonTanker++;
                     continue;
                 }
 
@@ -256,11 +281,13 @@ try {
                     $savedSnapshots++;
                 }
             } elseif ($type === 'ShipStaticData') {
+                $staticMessages++;
                 $static = $msg['Message']['ShipStaticData'] ?? [];
                 $shipType = (int)($static['Type'] ?? 0);
                 $shipName = clean_ship_name($static['Name'] ?? '');
 
                 if (!is_tanker($shipType)) {
+                    $skippedNonTanker++;
                     continue;
                 }
 
@@ -272,6 +299,13 @@ try {
                 $state['seen_messages'] = $seenMessages;
                 $state['saved_latest'] = $savedLatest;
                 $state['saved_snapshots'] = $savedSnapshots;
+                $state['position_messages'] = $positionMessages;
+                $state['static_messages'] = $staticMessages;
+                $state['skipped_invalid_payload'] = $skippedInvalidPayload;
+                $state['skipped_no_mmsi'] = $skippedNoMmsi;
+                $state['skipped_no_coords'] = $skippedNoCoords;
+                $state['skipped_non_tanker'] = $skippedNonTanker;
+                $state['type_backfill_hits'] = $typeBackfillHits;
                 $state['updated_at'] = gmdate('c');
                 write_collector_state($state);
             }
@@ -291,6 +325,13 @@ try {
         'saved_latest' => $savedLatest,
         'saved_snapshots' => $savedSnapshots,
         'websocket_connected' => $state['websocket_connected'] ?? false,
+        'position_messages' => $positionMessages,
+        'static_messages' => $staticMessages,
+        'skipped_invalid_payload' => $skippedInvalidPayload,
+        'skipped_no_mmsi' => $skippedNoMmsi,
+        'skipped_no_coords' => $skippedNoCoords,
+        'skipped_non_tanker' => $skippedNonTanker,
+        'type_backfill_hits' => $typeBackfillHits,
     ]);
 }
 
@@ -299,6 +340,13 @@ prune_old_data($db);
 $state['seen_messages'] = $seenMessages;
 $state['saved_latest'] = $savedLatest;
 $state['saved_snapshots'] = $savedSnapshots;
+$state['position_messages'] = $positionMessages;
+$state['static_messages'] = $staticMessages;
+$state['skipped_invalid_payload'] = $skippedInvalidPayload;
+$state['skipped_no_mmsi'] = $skippedNoMmsi;
+$state['skipped_no_coords'] = $skippedNoCoords;
+$state['skipped_non_tanker'] = $skippedNonTanker;
+$state['type_backfill_hits'] = $typeBackfillHits;
 $state['finished_at'] = gmdate('c');
 $state['duration_seconds'] = max(0, time() - $startTs);
 $state['updated_at'] = gmdate('c');

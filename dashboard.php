@@ -20,6 +20,9 @@ require_once __DIR__ . '/config.php';
     --anchored: #b45309;
     --unknown: #6b7280;
     --error: #dc2626;
+    --term-bg: #0b1220;
+    --term-text: #d7e3ff;
+    --term-line: #1e293b;
 }
 * { box-sizing: border-box; }
 html, body {
@@ -199,7 +202,7 @@ th {
 }
 .debug-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(170px, 1fr));
+    grid-template-columns: repeat(4, minmax(170px, 1fr));
     gap: 8px;
 }
 .debug-item {
@@ -224,6 +227,45 @@ th {
     border: 1px solid var(--line);
     background: #f8fafc;
 }
+.debug-sections {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 8px;
+}
+.debug-block {
+    border: 1px solid var(--line);
+    background: #f8fafc;
+    padding: 8px;
+}
+.debug-block-title {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+}
+.debug-terminal {
+    margin: 0;
+    background: var(--term-bg);
+    color: var(--term-text);
+    border: 1px solid var(--term-line);
+    padding: 10px;
+    font-size: 11px;
+    overflow: auto;
+    max-height: 310px;
+    white-space: pre-wrap;
+    line-height: 1.45;
+}
+.debug-list {
+    margin: 0;
+    padding-left: 16px;
+    color: #111827;
+    font-size: 12px;
+}
+.debug-list li {
+    margin-bottom: 5px;
+}
 #debugJson {
     margin: 10px 0 0;
     background: #f8fafc;
@@ -245,6 +287,7 @@ th {
     .layout { grid-template-columns: 1fr; }
     #hormuz-map { height: 450px; }
     .debug-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+    .debug-sections { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
     .grid { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
@@ -327,15 +370,42 @@ th {
                     <div class="debug-item"><div class="k">Collector delay</div><div class="v" id="dDelay">-</div></div>
                     <div class="debug-item"><div class="k">Last collector error</div><div class="v" id="dError">-</div></div>
                     <div class="debug-item"><div class="k">State file</div><div class="v" id="dState">-</div></div>
+                    <div class="debug-item"><div class="k">WebSocket connected</div><div class="v" id="dWs">-</div></div>
+                    <div class="debug-item"><div class="k">Subscription sent</div><div class="v" id="dSub">-</div></div>
+                    <div class="debug-item"><div class="k">Messages seen</div><div class="v" id="dSeen">-</div></div>
+                    <div class="debug-item"><div class="k">Skipped non-tanker</div><div class="v" id="dSkipType">-</div></div>
+                    <div class="debug-item"><div class="k">Type backfill hits</div><div class="v" id="dBackfill">-</div></div>
+                    <div class="debug-item"><div class="k">Rows: vessel_latest</div><div class="v" id="dRowsLatest">-</div></div>
+                    <div class="debug-item"><div class="k">Rows: sightings</div><div class="v" id="dRowsSightings">-</div></div>
+                    <div class="debug-item"><div class="k">State age</div><div class="v" id="dStateAge">-</div></div>
+                    <div class="debug-item"><div class="k">PHP SAPI</div><div class="v" id="dSapi">-</div></div>
                 </div>
                 <div id="debugHint">Hint: -</div>
+                <div class="debug-sections">
+                    <div class="debug-block">
+                        <div class="debug-block-title">Live Debug Terminal</div>
+                        <pre id="debugTerminal" class="debug-terminal">Waiting for first payload...</pre>
+                    </div>
+                    <div class="debug-block">
+                        <div class="debug-block-title">Recommended Actions</div>
+                        <ul id="debugActions" class="debug-list">
+                            <li>Waiting for diagnostics...</li>
+                        </ul>
+                        <div class="debug-block-title" style="margin-top:10px">Filesystem Checks</div>
+                        <pre id="debugFiles" class="debug-terminal" style="max-height:160px">Waiting for diagnostics...</pre>
+                    </div>
+                </div>
+                <div class="debug-block" style="margin-top:8px">
+                    <div class="debug-block-title">Collector Log Tail</div>
+                    <pre id="debugLogTail" class="debug-terminal" style="max-height:220px">No log lines yet.</pre>
+                </div>
                 <pre id="debugJson">No debug payload yet.</pre>
             </div>
         </details>
     </div>
 
     <div class="foot">
-        Auto refresh: <?= DASHBOARD_REFRESH_SECONDS ?>s | Manual refresh button enabled | API: <code>/api.php</code>
+        Auto refresh: <?= DASHBOARD_REFRESH_SECONDS ?>s | Manual refresh button enabled | API: <code>/api.php?debug=1</code>
     </div>
 </div>
 
@@ -518,31 +588,89 @@ function renderStatus(health, diagnosis) {
     }
 }
 
+function boolText(value) {
+    return value === true ? 'true' : value === false ? 'false' : '-';
+}
+
+function setList(id, items) {
+    const el = document.getElementById(id);
+    if (!el) return;
+
+    if (!Array.isArray(items) || items.length === 0) {
+        el.innerHTML = '<li>-</li>';
+        return;
+    }
+
+    el.innerHTML = items.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+}
+
 function renderDebug(data, httpStatus, latencyMs, fetchError) {
+    const diagnosis = data && data.diagnosis ? data.diagnosis : {};
+    const health = data && data.health ? data.health : {};
+    const collectorState = data && data.collector_state ? data.collector_state : {};
+    const debug = data && data.debug ? data.debug : {};
+    const debugCollector = debug.collector || {};
+    const debugDb = debug.database || {};
+    const debugSystem = debug.system || {};
+    const files = debug.files || {};
+    const logTail = debug.log_tail || {};
+
     setText('dHttp', fetchError ? 'error' : (String(httpStatus) + (httpStatus >= 200 && httpStatus < 300 ? ' OK' : '')));
     setText('dLatency', latencyMs === null ? '-' : latencyMs + ' ms');
     setText('dGenerated', data && data.generated_at ? data.generated_at : '-');
-    setText('dIssue', data && data.diagnosis ? (data.diagnosis.issue_code || '-') : '-');
-    setText('dKey', data && data.diagnosis ? String(data.diagnosis.api_key_configured) : '-');
-    setText('dCollectorStatus', data && data.diagnosis ? (data.diagnosis.collector_status || '-') : '-');
-    setText('dDelay', data && data.health && data.health.collector_delay_seconds !== null ? (data.health.collector_delay_seconds + ' s') : '-');
-    setText('dError', data && data.diagnosis ? (data.diagnosis.collector_last_error || '-') : (fetchError || '-'));
-    setText('dState', data && data.collector_state ? (data.collector_state.available ? 'available' : (data.collector_state.status || 'missing')) : '-');
+    setText('dIssue', diagnosis.issue_code || '-');
+    setText('dKey', boolText(diagnosis.api_key_configured));
+    setText('dCollectorStatus', diagnosis.collector_status || '-');
+    setText('dDelay', health.collector_delay_seconds !== null && health.collector_delay_seconds !== undefined ? (health.collector_delay_seconds + ' s') : '-');
+    setText('dError', diagnosis.collector_last_error || fetchError || '-');
+    setText('dState', collectorState.available ? 'available' : (collectorState.status || 'missing'));
+    setText('dWs', boolText(debugCollector.websocket_connected));
+    setText('dSub', boolText(debugCollector.subscription_sent));
+    setText('dSeen', debugCollector.seen_messages !== undefined ? String(debugCollector.seen_messages) : '-');
+    setText('dSkipType', debugCollector.skipped_non_tanker !== undefined ? String(debugCollector.skipped_non_tanker) : '-');
+    setText('dBackfill', debugCollector.type_backfill_hits !== undefined ? String(debugCollector.type_backfill_hits) : '-');
+    setText('dRowsLatest', debugDb.rows_vessel_latest !== undefined ? String(debugDb.rows_vessel_latest) : '-');
+    setText('dRowsSightings', debugDb.rows_tanker_sightings !== undefined ? String(debugDb.rows_tanker_sightings) : '-');
+    setText('dStateAge', debugCollector.state_age_seconds !== null && debugCollector.state_age_seconds !== undefined ? (debugCollector.state_age_seconds + ' s') : '-');
+    setText('dSapi', debugSystem.php_sapi || '-');
 
     const hint = fetchError
         ? ('Fetch error: ' + fetchError)
-        : (data && data.diagnosis && data.diagnosis.hint ? data.diagnosis.hint : '-');
+        : (diagnosis.hint || '-');
+    setHtml('debugHint', 'Hint: ' + escapeHtml(hint));
 
-    const hintSafe = escapeHtml(hint);
-    setHtml('debugHint', 'Hint: ' + hintSafe);
+    const terminalLines = Array.isArray(debug.terminal_lines) && debug.terminal_lines.length > 0
+        ? debug.terminal_lines
+        : [
+            `[${new Date().toISOString()}] no terminal lines in payload`,
+            'Check /api.php?debug=1 output.'
+        ];
+    setText('debugTerminal', terminalLines.join('\n'));
+
+    setList('debugActions', Array.isArray(debug.recommended_actions) ? debug.recommended_actions : []);
+
+    const fsLines = [];
+    Object.keys(files).forEach((key) => {
+        const p = files[key] || {};
+        fsLines.push(`${key}: exists=${boolText(p.exists)} readable=${boolText(p.readable)} writable=${boolText(p.writable)} size=${p.size_bytes === null || p.size_bytes === undefined ? '-' : p.size_bytes} path=${p.path || '-'}`);
+    });
+    setText('debugFiles', fsLines.length > 0 ? fsLines.join('\n') : 'No filesystem diagnostics.');
+
+    const logLines = Array.isArray(logTail.lines) ? logTail.lines : [];
+    if (logLines.length > 0) {
+        setText('debugLogTail', logLines.join('\n'));
+    } else {
+        setText('debugLogTail', logTail.message || 'No collector log lines yet.');
+    }
 
     const payload = fetchError
         ? { fetch_error: fetchError }
         : {
-            diagnosis: data ? data.diagnosis : null,
-            collector_state: data ? data.collector_state : null,
-            health: data ? data.health : null,
+            diagnosis: diagnosis,
+            collector_state: collectorState,
+            health: health,
             stats: data ? data.stats : null,
+            debug: debug,
         };
 
     setText('debugJson', JSON.stringify(payload, null, 2));
@@ -552,7 +680,7 @@ async function refresh() {
     const t0 = performance.now();
 
     try {
-        const response = await fetch(`${API_URL}?_=${Date.now()}`, { cache: 'no-store' });
+        const response = await fetch(`${API_URL}?debug=1&_=${Date.now()}`, { cache: 'no-store' });
         const latency = Math.round(performance.now() - t0);
 
         if (!response.ok) {
