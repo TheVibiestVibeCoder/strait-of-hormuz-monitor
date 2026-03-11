@@ -7,12 +7,13 @@ Lightweight PHP + SQLite dashboard for tanker flow in the Strait of Hormuz.
 - Clean dashboard stats + live map.
 - Leaflet map with the monitoring box drawn in.
 - Manual refresh button.
+- Collapsible debug panel (default collapsed) with API/collector diagnostics.
 - Auto-refresh every 15 minutes (configurable).
 - cPanel-friendly deployment and cron operation.
 
 ## Files
 
-- `collector.php`: AIS websocket collector (CLI and secured web mode).
+- `collector.php`: AIS websocket collector (CLI cron worker).
 - `api.php`: JSON endpoint for current state.
 - `dashboard.php`: map + stats UI.
 - `index.php`: routes root to dashboard.
@@ -28,9 +29,8 @@ Lightweight PHP + SQLite dashboard for tanker flow in the Strait of Hormuz.
 cp .env.example .env
 ```
 
-3. Set at least these values in `.env`:
+3. Set at least this value in `.env`:
 - `AISSTREAM_API_KEY`
-- `COLLECTOR_WEB_TOKEN` (only for curl cron mode)
 
 4. Install dependency once:
 
@@ -42,18 +42,18 @@ composer install --no-dev
 
 ## Cron setup (exact lines)
 
-Use one of these two patterns.
+Use CLI cron to execute `collector.php`. Do not use `curl` for AISStream.
+`collector.php` is intentionally blocked for HTTP access and must run from CLI.
 
-### A) Preferred: CLI cron every 15 minutes
+### cPanel cron every 15 minutes
 
 ```cron
 */15 * * * * /usr/local/bin/php /home/<cpanel-user>/public_html/collector.php --runtime=50 >> /home/<cpanel-user>/public_html/logs/collector.log 2>&1
 ```
 
-### B) Curl cron every 15 minutes
-
+Alternative PHP path (if needed):
 ```cron
-*/15 * * * * /usr/bin/curl -fsS "https://hormuz.markusschwinghammer.com/collector.php?token=<YOUR_COLLECTOR_WEB_TOKEN>&runtime=45" >/dev/null 2>&1
+*/15 * * * * /usr/bin/php /home/<cpanel-user>/public_html/collector.php --runtime=50 >> /home/<cpanel-user>/public_html/logs/collector.log 2>&1
 ```
 
 ## Dashboard refresh behavior

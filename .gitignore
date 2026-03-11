@@ -1,3 +1,4 @@
 .env
 hormuz.db
 logs/*.log
+collector_state.json

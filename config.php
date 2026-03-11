@@ -7,10 +7,9 @@ define('AISSTREAM_API_KEY', env_str('AISSTREAM_API_KEY', 'CHANGE_ME'));
 define('ALERT_EMAIL', env_str('ALERT_EMAIL', 'alerts@example.com'));
 define('FROM_EMAIL', env_str('FROM_EMAIL', 'hormuz-monitor@example.com'));
 
-define('COLLECTOR_WEB_TOKEN', env_str('COLLECTOR_WEB_TOKEN', 'CHANGE_ME'));
-
 // SQLite database path.
 define('DB_PATH', env_path('DB_PATH', __DIR__ . '/hormuz.db'));
+define('COLLECTOR_STATE_PATH', env_path('COLLECTOR_STATE_PATH', __DIR__ . '/collector_state.json'));
 
 // Strait of Hormuz monitoring box.
 define('BBOX_SW_LAT', env_float('BBOX_SW_LAT', 25.5));
@@ -65,6 +64,7 @@ function load_env_file(string $path): void {
 
     foreach ($lines as $line) {
         $line = trim($line);
+        $line = preg_replace('/^\xEF\xBB\xBF/', '', $line);
         if ($line === '' || str_starts_with($line, '#')) {
             continue;
         }

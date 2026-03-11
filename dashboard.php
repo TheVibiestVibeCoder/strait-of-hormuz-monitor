@@ -10,31 +10,32 @@ require_once __DIR__ . '/config.php';
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
 :root {
-    --bg: #020202;
-    --panel: #090909;
-    --line: #262626;
-    --text: #f2f2f2;
-    --muted: #8d8d8d;
-    --outbound: #00d06f;
-    --inbound: #3aa1ff;
-    --anchored: #ffc04d;
-    --unknown: #6d6d6d;
+    --bg: #f6f8fb;
+    --panel: #ffffff;
+    --line: #dbe2ea;
+    --text: #111827;
+    --muted: #6b7280;
+    --outbound: #059669;
+    --inbound: #2563eb;
+    --anchored: #b45309;
+    --unknown: #6b7280;
+    --error: #dc2626;
 }
 * { box-sizing: border-box; }
 html, body {
     margin: 0;
-    background: radial-gradient(circle at 40% 10%, #0f0f0f 0%, #020202 60%);
+    background: linear-gradient(180deg, #f9fbfd 0%, #f2f5f9 100%);
     color: var(--text);
     font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 }
 .container {
-    width: min(1200px, 94vw);
+    width: min(1220px, 94vw);
     margin: 0 auto;
-    padding: 16px 0 28px;
+    padding: 16px 0 30px;
 }
 .header {
     border: 1px solid var(--line);
-    background: rgba(9, 9, 9, 0.92);
+    background: var(--panel);
     padding: 12px 14px;
     display: flex;
     justify-content: space-between;
@@ -57,14 +58,14 @@ html, body {
 }
 .btn {
     border: 1px solid var(--line);
-    background: #0f0f0f;
+    background: #f8fafc;
     color: var(--text);
     font-size: 12px;
     padding: 7px 10px;
     cursor: pointer;
 }
 .btn:hover {
-    border-color: #4a4a4a;
+    border-color: #9ca3af;
 }
 .status-dot {
     width: 8px;
@@ -82,7 +83,7 @@ html, body {
 }
 .card {
     border: 1px solid var(--line);
-    background: rgba(9, 9, 9, 0.92);
+    background: var(--panel);
     padding: 10px;
 }
 .card .k {
@@ -104,7 +105,7 @@ html, body {
 }
 .panel {
     border: 1px solid var(--line);
-    background: rgba(9, 9, 9, 0.95);
+    background: var(--panel);
 }
 .panel-head {
     display: flex;
@@ -139,8 +140,8 @@ html, body {
 #hormuz-map {
     width: 100%;
     height: 540px;
-    border: 1px solid #171717;
-    background: #010101;
+    border: 1px solid var(--line);
+    background: #eef2f7;
 }
 .feed {
     overflow: auto;
@@ -153,14 +154,14 @@ table {
 th, td {
     font-size: 12px;
     padding: 8px 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid #eef2f7;
     text-align: left;
     white-space: nowrap;
 }
 th {
     position: sticky;
     top: 0;
-    background: #0b0b0b;
+    background: #f8fafc;
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -173,41 +174,83 @@ th {
 .foot {
     margin-top: 8px;
     border: 1px solid var(--line);
+    background: var(--panel);
     padding: 10px 12px;
     color: var(--muted);
     font-size: 12px;
 }
-.leaflet-container { background: #060a0d !important; }
-.leaflet-tile { filter: brightness(0.62) saturate(0.28) hue-rotate(185deg) invert(0.9); }
-.leaflet-control-zoom a {
-    background: #0c0c0c !important;
-    color: #909090 !important;
-    border-color: #222 !important;
+.debug-wrap {
+    margin-top: 8px;
+    border: 1px solid var(--line);
+    background: var(--panel);
 }
-.leaflet-control-zoom a:hover {
-    color: #fff !important;
-    border-color: #444 !important;
+.debug-wrap details {
+    padding: 8px 12px 12px;
+}
+.debug-wrap summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 600;
+    user-select: none;
+}
+.debug-content {
+    margin-top: 10px;
+}
+.debug-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(170px, 1fr));
+    gap: 8px;
+}
+.debug-item {
+    border: 1px solid var(--line);
+    background: #f8fafc;
+    padding: 8px;
+}
+.debug-item .k {
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+}
+.debug-item .v {
+    margin-top: 4px;
+    font-size: 12px;
+    word-break: break-word;
+}
+#debugHint {
+    margin-top: 10px;
+    font-size: 12px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    background: #f8fafc;
+}
+#debugJson {
+    margin: 10px 0 0;
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    padding: 10px;
+    font-size: 11px;
+    overflow: auto;
+    max-height: 260px;
+    white-space: pre;
 }
 .leaflet-popup-content-wrapper {
-    background: #0c0c0c !important;
-    color: #ddd !important;
-    border: 1px solid #2c2c2c !important;
+    border: 1px solid #d1d5db !important;
 }
-.leaflet-popup-tip { background: #0c0c0c !important; }
-.leaflet-control-attribution {
-    background: rgba(0,0,0,0.6) !important;
-    color: #666 !important;
-    font-size: 10px !important;
+.leaflet-control-zoom a {
+    color: #334155 !important;
 }
 @media (max-width: 1050px) {
     .grid { grid-template-columns: repeat(3, minmax(100px, 1fr)); }
     .layout { grid-template-columns: 1fr; }
     #hormuz-map { height: 450px; }
+    .debug-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
 }
 @media (max-width: 640px) {
     .grid { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
     th, td { font-size: 11px; padding: 7px 8px; }
     #hormuz-map { height: 380px; }
+    .debug-grid { grid-template-columns: 1fr; }
 }
 </style>
 </head>
@@ -270,6 +313,27 @@ th {
         </div>
     </div>
 
+    <div class="debug-wrap">
+        <details id="debugPanel">
+            <summary>Debug (API and Collector Diagnostics)</summary>
+            <div class="debug-content">
+                <div class="debug-grid">
+                    <div class="debug-item"><div class="k">API HTTP</div><div class="v" id="dHttp">-</div></div>
+                    <div class="debug-item"><div class="k">API latency</div><div class="v" id="dLatency">-</div></div>
+                    <div class="debug-item"><div class="k">Generated at</div><div class="v" id="dGenerated">-</div></div>
+                    <div class="debug-item"><div class="k">Issue code</div><div class="v" id="dIssue">-</div></div>
+                    <div class="debug-item"><div class="k">API key configured</div><div class="v" id="dKey">-</div></div>
+                    <div class="debug-item"><div class="k">Collector status</div><div class="v" id="dCollectorStatus">-</div></div>
+                    <div class="debug-item"><div class="k">Collector delay</div><div class="v" id="dDelay">-</div></div>
+                    <div class="debug-item"><div class="k">Last collector error</div><div class="v" id="dError">-</div></div>
+                    <div class="debug-item"><div class="k">State file</div><div class="v" id="dState">-</div></div>
+                </div>
+                <div id="debugHint">Hint: -</div>
+                <pre id="debugJson">No debug payload yet.</pre>
+            </div>
+        </details>
+    </div>
+
     <div class="foot">
         Auto refresh: <?= DASHBOARD_REFRESH_SECONDS ?>s | Manual refresh button enabled | API: <code>/api.php</code>
     </div>
@@ -288,10 +352,10 @@ const BBOX = {
 };
 
 const COLOR = {
-    OUTBOUND: '#00d06f',
-    INBOUND: '#3aa1ff',
-    ANCHORED: '#ffc04d',
-    UNKNOWN: '#6d6d6d',
+    OUTBOUND: '#059669',
+    INBOUND: '#2563eb',
+    ANCHORED: '#b45309',
+    UNKNOWN: '#6b7280',
 };
 
 const map = L.map('hormuz-map', { zoomControl: true }).setView([26.35, 56.4], 8);
@@ -301,7 +365,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 L.rectangle([[BBOX.swLat, BBOX.swLon], [BBOX.neLat, BBOX.neLon]], {
-    color: 'rgba(255,255,255,0.65)',
+    color: '#1f2937',
     weight: 1,
     dashArray: '6 4',
     fillOpacity: 0,
@@ -326,7 +390,7 @@ function markerIcon(direction, cog) {
 
     return L.divIcon({
         className: '',
-        html: `<div style="transform:rotate(${Number(cog || 0)}deg);width:24px;height:24px">\n                 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">\n                   <circle cx="12" cy="12" r="10" fill="${c}" fill-opacity="0.18" stroke="${c}" stroke-width="1.5"/>\n                   ${arrow}\n                 </svg>\n               </div>`,
+        html: `<div style="transform:rotate(${Number(cog || 0)}deg);width:24px;height:24px">\n                 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">\n                   <circle cx="12" cy="12" r="10" fill="${c}" fill-opacity="0.2" stroke="${c}" stroke-width="1.5"/>\n                   ${arrow}\n                 </svg>\n               </div>`,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
     });
@@ -336,6 +400,13 @@ function setText(id, value) {
     const el = document.getElementById(id);
     if (el) {
         el.textContent = String(value);
+    }
+}
+
+function setHtml(id, value) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.innerHTML = String(value);
     }
 }
 
@@ -406,14 +477,14 @@ function renderMap(vessels) {
                     : 'Unknown';
 
         marker.bindPopup(`
-            <div style="min-width:200px">
-                <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:6px">${escapeHtml(v.name || 'UNKNOWN')}</div>
-                <div style="font-size:11px;color:#666;margin-bottom:8px">MMSI ${escapeHtml(v.mmsi)}</div>
+            <div style="min-width:200px;color:#111827">
+                <div style="font-size:13px;font-weight:700;margin-bottom:6px">${escapeHtml(v.name || 'UNKNOWN')}</div>
+                <div style="font-size:11px;color:#6b7280;margin-bottom:8px">MMSI ${escapeHtml(v.mmsi)}</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px">
-                    <div style="color:#666">Direction</div><div style="color:${color}">${directionText}</div>
-                    <div style="color:#666">COG</div><div>${Number(v.cog || 0).toFixed(0)} deg</div>
-                    <div style="color:#666">SOG</div><div>${Number(v.sog || 0).toFixed(1)} kn</div>
-                    <div style="color:#666">Seen</div><div>${escapeHtml(v.seen_at || '-')}</div>
+                    <div style="color:#6b7280">Direction</div><div style="color:${color}">${directionText}</div>
+                    <div style="color:#6b7280">COG</div><div>${Number(v.cog || 0).toFixed(0)} deg</div>
+                    <div style="color:#6b7280">SOG</div><div>${Number(v.sog || 0).toFixed(1)} kn</div>
+                    <div style="color:#6b7280">Seen</div><div>${escapeHtml(v.seen_at || '-')}</div>
                 </div>
             </div>
         `);
@@ -422,29 +493,68 @@ function renderMap(vessels) {
     });
 }
 
-function renderStatus(health) {
+function renderStatus(health, diagnosis) {
     const dot = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
 
-    if (!health || !dot || !text) return;
+    if (!dot || !text) return;
 
-    if (health.collector_online) {
-        dot.style.background = '#00d06f';
+    if (health && health.collector_online) {
+        dot.style.background = '#059669';
         text.textContent = 'collector online';
     } else {
-        dot.style.background = '#ff5252';
+        dot.style.background = '#dc2626';
         text.textContent = 'collector delayed';
+    }
+
+    if (diagnosis && diagnosis.issue_code && diagnosis.issue_code !== 'healthy' && diagnosis.issue_code !== 'no_active_tankers') {
+        dot.style.background = '#dc2626';
+        text.textContent = 'check debug';
     }
 
     const updated = document.getElementById('updatedAt');
     if (updated) {
-        updated.textContent = 'last seen: ' + (health.last_seen_at || '-') + ' UTC';
+        updated.textContent = 'last seen: ' + ((health && health.last_seen_at) ? health.last_seen_at : '-') + ' UTC';
     }
 }
 
+function renderDebug(data, httpStatus, latencyMs, fetchError) {
+    setText('dHttp', fetchError ? 'error' : (String(httpStatus) + (httpStatus >= 200 && httpStatus < 300 ? ' OK' : '')));
+    setText('dLatency', latencyMs === null ? '-' : latencyMs + ' ms');
+    setText('dGenerated', data && data.generated_at ? data.generated_at : '-');
+    setText('dIssue', data && data.diagnosis ? (data.diagnosis.issue_code || '-') : '-');
+    setText('dKey', data && data.diagnosis ? String(data.diagnosis.api_key_configured) : '-');
+    setText('dCollectorStatus', data && data.diagnosis ? (data.diagnosis.collector_status || '-') : '-');
+    setText('dDelay', data && data.health && data.health.collector_delay_seconds !== null ? (data.health.collector_delay_seconds + ' s') : '-');
+    setText('dError', data && data.diagnosis ? (data.diagnosis.collector_last_error || '-') : (fetchError || '-'));
+    setText('dState', data && data.collector_state ? (data.collector_state.available ? 'available' : (data.collector_state.status || 'missing')) : '-');
+
+    const hint = fetchError
+        ? ('Fetch error: ' + fetchError)
+        : (data && data.diagnosis && data.diagnosis.hint ? data.diagnosis.hint : '-');
+
+    const hintSafe = escapeHtml(hint);
+    setHtml('debugHint', 'Hint: ' + hintSafe);
+
+    const payload = fetchError
+        ? { fetch_error: fetchError }
+        : {
+            diagnosis: data ? data.diagnosis : null,
+            collector_state: data ? data.collector_state : null,
+            health: data ? data.health : null,
+            stats: data ? data.stats : null,
+        };
+
+    setText('debugJson', JSON.stringify(payload, null, 2));
+}
+
 async function refresh() {
+    const t0 = performance.now();
+
     try {
         const response = await fetch(`${API_URL}?_=${Date.now()}`, { cache: 'no-store' });
+        const latency = Math.round(performance.now() - t0);
+
         if (!response.ok) {
             throw new Error('HTTP ' + response.status);
         }
@@ -462,12 +572,16 @@ async function refresh() {
 
         renderMap(vessels);
         renderFeed(vessels);
-        renderStatus(data.health || {});
+        renderStatus(data.health || {}, data.diagnosis || {});
+        renderDebug(data, response.status, latency, null);
     } catch (err) {
+        const msg = err && err.message ? err.message : String(err);
+        renderDebug(null, null, null, msg);
+
         const text = document.getElementById('statusText');
         const dot = document.getElementById('statusDot');
-        if (dot) dot.style.background = '#ff5252';
-        if (text) text.textContent = 'api error: ' + err.message;
+        if (dot) dot.style.background = '#dc2626';
+        if (text) text.textContent = 'api error';
     }
 }
 
