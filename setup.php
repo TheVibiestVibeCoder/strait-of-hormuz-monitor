@@ -9,7 +9,10 @@ if (!is_dir(__DIR__ . '/logs')) {
 $db = get_db();
 prune_old_data($db);
 
-$phpBinary = trim((string)shell_exec('which php')) ?: '/usr/local/bin/php';
+$phpBinary = '/usr/local/bin/lsphp';
+if (!is_executable($phpBinary)) {
+    $phpBinary = trim((string)shell_exec('which php')) ?: '/usr/local/bin/php';
+}
 $basePath = __DIR__;
 
 echo "\nHormuz monitor setup\n";

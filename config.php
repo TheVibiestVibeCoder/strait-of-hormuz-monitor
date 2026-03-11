@@ -1,5 +1,26 @@
 <?php
 
+// Polyfills for hosts where CLI PHP is older than web PHP.
+if (!function_exists('str_starts_with')) {
+    function str_starts_with(string $haystack, string $needle): bool {
+        if ($needle === '') {
+            return true;
+        }
+
+        return strpos($haystack, $needle) === 0;
+    }
+}
+
+if (!function_exists('str_contains')) {
+    function str_contains(string $haystack, string $needle): bool {
+        if ($needle === '') {
+            return true;
+        }
+
+        return strpos($haystack, $needle) !== false;
+    }
+}
+
 load_env_file(__DIR__ . '/.env');
 
 // Core credentials.

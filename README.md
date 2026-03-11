@@ -48,12 +48,12 @@ Use CLI cron to execute `collector.php`. Do not use `curl` for AISStream.
 ### cPanel cron every 15 minutes
 
 ```cron
-*/15 * * * * /usr/local/bin/php /home/<cpanel-user>/public_html/collector.php --runtime=50 >> /home/<cpanel-user>/public_html/logs/collector.log 2>&1
+*/15 * * * * /usr/local/bin/lsphp /home/markussc/hormuz.markusschwinghammer.com/collector.php --runtime=50 >> /home/markussc/hormuz.markusschwinghammer.com/logs/collector.log 2>&1
 ```
 
-Alternative PHP path (if needed):
+Alternative command with explicit `cd` (same result):
 ```cron
-*/15 * * * * /usr/bin/php /home/<cpanel-user>/public_html/collector.php --runtime=50 >> /home/<cpanel-user>/public_html/logs/collector.log 2>&1
+*/15 * * * * cd /home/markussc/hormuz.markusschwinghammer.com && /usr/local/bin/lsphp collector.php --runtime=50 >> /home/markussc/hormuz.markusschwinghammer.com/logs/collector.log 2>&1
 ```
 
 ## Dashboard refresh behavior
